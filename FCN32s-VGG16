@@ -46,15 +46,26 @@ class VGG16(torch.nn.Module):
         self.relu6 = torch.nn.ReLU(inplace=True)
         self.drop6 = torch.nn.Dropout()
 
-        #gc7
+        #fc7
         self.fc7 = torch.nn.Conv2d(4096, 4096, 1)
         self.relu7 = torch.nn.ReLU(inplace=True)
         self.drop7 = torch.nn.Dropout()
 
         #output
-        self.score = torch.nn.Conv2d(4096, n_class, 1)
-        self.upscore = torch.nn.ConvTranspose2d(n_class, n_class, 64, stride=32)  # *32 upsampling
+        #self.score = torch.nn.Conv2d(4096, n_class, 1)
+        #self.upscore = torch.nn.ConvTranspose2d(n_class, n_class, 64, stride=32)  # *32 upsampling
+        
 
+        self.score_fr = nn.Conv2d(4096, n_class, 1)
+        self.score_pool3 = nn.Conv2d(256, n_class, 1)
+        self.score_pool4 = nn.Conv2d(512, n_class, 1)
+
+        self.upscore2 = nn.ConvTranspose2d(
+            n_class, n_class, 4, stride=2, bias=False)
+        self.upscore8 = nn.ConvTranspose2d(
+            n_class, n_class, 16, stride=8, bias=False)
+        self.upscore_pool4 = nn.ConvTranspose2d(
+            n_class, n_class, 4, stride=2, bias=False)
 
 
     def forward(self, x):
@@ -88,12 +99,30 @@ class VGG16(torch.nn.Module):
         h = self.relu7(self.fc7(h))
         h = self.drop7()
 
-        h = self.score(h)  #output
+        h = self.score_fr(h)
+        h = self.upscore2(h)
+        upscore2 = h  # 1/16
 
-        h = self.upscore(h) #FCN32
+        h = self.score_pool4(pool4)
+        h = h[:, :, 5:5 + upscore2.size()[2], 5:5 + upscore2.size()[3]]
+        score_pool4c = h  # 1/16
 
+        h = upscore2 + score_pool4c  # 1/16
+        h = self.upscore_pool4(h)
+        upscore_pool4 = h  # 1/8
 
+        h = self.score_pool3(pool3)
+        h = h[:, :,
+              9:9 + upscore_pool4.size()[2],
+              9:9 + upscore_pool4.size()[3]]
+        score_pool3c = h  # 1/8
 
+        h = upscore_pool4 + score_pool3c  # 1/8
+
+        h = self.upscore8(h)
+        h = h[:, :, 31:31 + x.size()[2], 31:31 + x.size()[3]].contiguous()
+
+        return h
 
 
 
